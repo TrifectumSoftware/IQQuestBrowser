@@ -61,12 +61,14 @@
         scroll: 0,              // chapter list scroll
         mouseX: 0, mouseY: 0,
         missing: new Set(),
+        px: 1,                  // device pixels per GUI unit (supersampling)
+        open: null,             // quest opened in the detail view
     };
 
     const ok = i => !!i && i.complete && i.naturalWidth > 0;
 
     // bump to force clients past GitHub Pages' asset caching
-    const V = '4';
+    const V = '5';
 
     const canvas = document.getElementById('gui');
     const ctx = canvas.getContext('2d');
@@ -306,13 +308,19 @@
 
     // ------------------------------------------------------------------ layout
     function resize() {
+        // MC-style scaled resolution for the chrome, but the backing store is rendered at
+        // native resolution (S.px device pixels per GUI unit) so zooming stays sharp.
         const scale = Math.max(2, Math.floor(Math.min(window.innerWidth / 320, window.innerHeight / 240)));
         S.guiW = Math.ceil(window.innerWidth / scale);
         S.guiH = Math.ceil(window.innerHeight / scale);
-        canvas.width = S.guiW;
-        canvas.height = S.guiH;
+        const dpr = Math.min(2, window.devicePixelRatio || 1);
+        S.px = Math.max(1, (window.innerWidth / S.guiW) * dpr);
+
+        canvas.width = Math.round(S.guiW * S.px);
+        canvas.height = Math.round(S.guiH * S.px);
         canvas.style.width = window.innerWidth + 'px';
         canvas.style.height = window.innerHeight + 'px';
+        ctx.setTransform(S.px, 0, 0, S.px, 0, 0);
         ctx.imageSmoothingEnabled = false;
         fit();
     }
@@ -416,8 +424,8 @@
         }
         drawText(line ? line.name : '', 60, 12, '#000000', false);
 
-        // hover tooltip
-        if (S.hover && !S.dragging) renderTooltip(S.hover, S.mouseX, S.mouseY);
+        if (S.open) renderQuestDetail();
+        else if (S.hover && !S.dragging) renderTooltip(S.hover, S.mouseX, S.mouseY);
 
         hud.textContent = `${line ? line.name : ''}  ·  state: ${S.state}  ·  zoom ${S.zoom.toFixed(2)}  ·  drag=pan  wheel=zoom  F=fit  S=state`;
     }
@@ -459,6 +467,9 @@
     function renderQuestCanvas(line, fr) {
         if (!line) return;
         const [fx, fy, fw, fh] = fr;
+        // quest frames/icons are drawn from small pixel-art atlases; bilinear keeps them from
+        // going blocky when the canvas is zoomed in.
+        ctx.imageSmoothingEnabled = true;
         const items = lineQuests(S.line);
         const byId = new Map(items.map(it => [it.e.id, it]));
 
@@ -502,6 +513,7 @@
 
             if (S.mouseX >= x && S.mouseX < x + w && S.mouseY >= y && S.mouseY < y + h) S.hover = it;
         }
+        ctx.imageSmoothingEnabled = false;
     }
 
     // DirectionalLine: a quad along the segment plus arrow heads every ~20px
@@ -543,6 +555,76 @@
             ctx.fill();
         }
         ctx.restore();
+    }
+
+    // quest detail, opened by clicking a quest (BQ opens GuiQuest; this is the same content)
+    function renderQuestDetail() {
+        const q = S.open.q;
+        const x = 224, y = 32, w = S.guiW - 224 - 8, h = S.guiH - 32 - 8;
+        ninePatch(TEX.panelInner, x, y, w, h);
+
+        let ly = y + 12;
+        drawText(q.name, x + 12, ly, '#000000', true);
+        ly += 24;
+
+        if (q.isMain === 1) { drawText('MAIN QUEST', x + 12, ly, '#8a6d00', false); ly += 20; }
+
+        for (const para of wrap(cleanText(q.desc || ''), Math.max(40, w - 24))) {
+            drawText(para, x + 12, ly, '#1a1a1a', false);
+            ly += 18;
+            if (ly > y + h - 80) break;
+        }
+
+        ly += 10;
+        drawText('Tasks', x + 12, ly, '#000000', true);
+        ly += 20;
+        for (const t of q.tasks) {
+            if (ly > y + h - 40) break;
+            const detail = (t.items || [])
+                .map(i => (i.ore && i.ore.length ? i.ore : i.id) + (i.count > 1 ? ' x' + i.count : ''))
+                .join(', ');
+            drawText('- ' + t.id.split(':').pop() + (detail ? ': ' + detail : ''), x + 12, ly, '#1a1a1a', false);
+            ly += 18;
+        }
+
+        if (q.prerequisites.length) {
+            ly += 10;
+            drawText('Requires', x + 12, ly, '#000000', true);
+            ly += 20;
+            for (const p of q.prerequisites) {
+                if (ly > y + h - 40) break;
+                const pq = S.data.quests[p];
+                drawText('- ' + (pq ? pq.name : p), x + 12, ly, '#1a1a1a', false);
+                ly += 18;
+            }
+        }
+
+        drawText('click outside / Esc to close', x + 12, y + h - 22, '#666666', false);
+    }
+
+    // BQ descriptions use §colour codes and [quest]Title[/quest] / [url] tags
+    function cleanText(s) {
+        return s
+            .replace(/\u00A7./g, '')
+            .replace(/\[\/?quest\]/g, '')
+            .replace(/\[url(?: [^\]]*)?\]/g, '')
+            .replace(/\[\/url\]/g, '')
+            .replace(/\[note\]|\[\/note\]|\[warn\]|\[\/warn\]/g, '')
+            .replace(/\\n/g, '\n');
+    }
+
+    function wrap(text, width) {
+        const out = [];
+        for (const raw of String(text).split('\n')) {
+            let line = '';
+            for (const word of raw.split(' ')) {
+                const test = line ? line + ' ' + word : word;
+                if (textWidth(test) > width && line) { out.push(line); line = word; }
+                else line = test;
+            }
+            out.push(line);
+        }
+        return out;
     }
 
     function renderTooltip(it, mx, my) {
@@ -595,6 +677,7 @@
         });
 
         canvas.addEventListener('mousedown', e => {
+            if (S.open) { S.open = null; return; }
             const { tray } = rects();
             const [fx, fy, fw, fh] = rects().frame;
             const listX = tray[0] + 8, listY = tray[1] + 20, listW = tray[2] - 24;
@@ -615,6 +698,7 @@
         });
 
         window.addEventListener('mouseup', () => {
+            if (S.dragging && !S.dragMoved && S.hover) S.open = S.hover;
             S.dragging = false;
             canvas.classList.remove('dragging');
         });
@@ -644,6 +728,7 @@
         }, { passive: false });
 
         window.addEventListener('keydown', e => {
+            if (e.key === 'Escape') { S.open = null; return; }
             if (e.key === 'f' || e.key === 'F') fit();
             if (e.key === 's' || e.key === 'S') {
                 const order = ['locked', 'unlocked', 'pending', 'complete', 'repeatable'];

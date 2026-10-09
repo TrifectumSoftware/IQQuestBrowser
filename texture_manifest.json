@@ -1,16 +1,15 @@
 {
- "resolved": 94,
+ "resolved": 108,
  "byMethod": {
-  "exact": 72,
-  "token": 22
+  "exact": 80,
+  "token": 24,
+  "override": 4
  },
  "missing": [
-  "ArchitectureCraft:sawbench",
-  "IronChest:blockironchest",
-  "OpenBlocks:cursor",
-  "OpenBlocks:hangglider",
-  "OpenComputers:item",
-  "RandomThings:ingredient",
+  "architecturecraft:sawbench",
+  "ironchest:blockironchest",
+  "opencomputers:item",
+  "randomthings:ingredient",
   "adventurebackpack:blockbackpack",
   "chisel:futura",
   "hbm:item.battery_pack",
@@ -62,7 +61,6 @@
   "hbm:tile.machine_pumpjack",
   "hbm:tile.machine_rotary_furnace",
   "hbm:tile.machine_sawmill",
-  "hbm:tile.machine_shredder",
   "hbm:tile.machine_soldering_station",
   "hbm:tile.machine_solidifier",
   "hbm:tile.machine_steam_engine",
@@ -80,17 +78,6 @@
   "hbm:tile.turret_arty",
   "hbm:tile.turret_friendly",
   "hbm:tile.turret_himars",
-  "minecraft:book",
-  "minecraft:chest",
-  "minecraft:coal",
-  "minecraft:cobblestone",
-  "minecraft:compass",
-  "minecraft:fire",
-  "minecraft:glass",
-  "minecraft:grass",
-  "minecraft:nether_star",
-  "minecraft:netherrack",
-  "minecraft:red_flower",
   "questbook:itemquestbook"
  ],
  "lineTextures": {

@@ -59,6 +59,25 @@ for fn in os.listdir(MODS):
     if fn.endswith(".jar"):
         jars_by_mod.setdefault(mod_key(fn), []).append(os.path.join(MODS, fn))
 
+# Vanilla client jar (fetched from Mojang's version manifest) provides minecraft:* icons.
+VANILLA_JAR = os.path.join(OUT, ".work", "1.7.10.jar")
+if os.path.exists(VANILLA_JAR):
+    jars_by_mod["minecraft"] = [VANILLA_JAR]
+    print("vanilla jar: found")
+
+# A few vanilla ids whose texture name differs from the registry name (meta-based blocks).
+OVERRIDES = {
+    "minecraft:grass": "assets/minecraft/textures/blocks/grass_side.png",
+    "minecraft:red_flower": "assets/minecraft/textures/blocks/flower_rose.png",
+    "minecraft:fire": "assets/minecraft/textures/blocks/fire_layer_0.png",
+    "minecraft:tallgrass": "assets/minecraft/textures/blocks/tallgrass.png",
+    "minecraft:waterlily": "assets/minecraft/textures/blocks/waterlily.png",
+    "minecraft:yellow_flower": "assets/minecraft/textures/blocks/flower_dandelion.png",
+    "minecraft:deadbush": "assets/minecraft/textures/blocks/deadbush.png",
+    "minecraft:sapling": "assets/minecraft/textures/blocks/sapling_oak.png",
+    "minecraft:book": "assets/minecraft/textures/items/book_normal.png",
+}
+
 def index(path):
     idx = {}
     with zipfile.ZipFile(path) as z:
@@ -122,8 +141,9 @@ def resolve(idx, bnames, modid, name):
     scored.sort()
     best = scored[0]
     # require the best to be clearly better than the runner-up
-    # accept a close relative (at most one extra qualifier token, e.g. crate_iron -> crate_iron_side)
-    if best[0][0] > 1:
+    # accept a close relative (up to two extra qualifier tokens, e.g.
+    #   crate_iron -> crate_iron_side,  machine_shredder -> machine_shredder_front_alt)
+    if best[0][0] > 2:
         return None, None
     for sub in ("items", "blocks", "item", "block"):
         e = "assets/%s/textures/%s/%s.png" % (modid, sub, best[2])
@@ -133,30 +153,36 @@ def resolve(idx, bnames, modid, name):
 
 manifest = {"resolved": 0, "byMethod": {"exact": 0, "token": 0}, "missing": [], "lineTextures": {}}
 for modid, names in sorted(want.items()):
-    cands = jars_by_mod.get(modid) or []
+    # icon ids are not consistently cased (ArchitectureCraft:, IronChest:, questbook:),
+    # but jars and asset namespaces are lowercase - normalise once, use everywhere.
+    mid = modid.lower()
+    cands = jars_by_mod.get(mid) or []
     if not cands:
         for hint, js in jars_by_mod.items():
-            if modid and modid in hint:
+            if mid and mid in hint:
                 cands.extend(js)
     idx, bnames, used = None, None, None
     for jar in cands:
         i = index(jar)
-        if any(resolve(i, basenames(i, modid), modid, n)[0] for n in names):
+        if any(resolve(i, basenames(i, mid), mid, n)[0] for n in names):
             idx, used = i, jar
-            bnames = basenames(i, modid)
+            bnames = basenames(i, mid)
             break
     if idx is None and cands:
         idx, used = index(cands[0]), cands[0]
-        bnames = basenames(idx, modid)
+        bnames = basenames(idx, mid)
 
     for n in sorted(names):
         entry, method = (None, None)
-        if idx is not None:
-            entry, method = resolve(idx, bnames, modid, n)
+        full = mid + ":" + n
+        if full in OVERRIDES and idx is not None and OVERRIDES[full] in idx:
+            entry, method = OVERRIDES[full], "override"
+        elif idx is not None:
+            entry, method = resolve(idx, bnames, mid, n)
         if entry is None:
-            manifest["missing"].append(modid + ":" + n)
+            manifest["missing"].append(mid + ":" + n)
             continue
-        outdir = os.path.join(OUT, "textures", "icons", modid)
+        outdir = os.path.join(OUT, "textures", "icons", mid)
         os.makedirs(outdir, exist_ok=True)
         dest = os.path.join(outdir, n + ".png")
         try:

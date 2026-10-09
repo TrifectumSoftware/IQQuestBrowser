@@ -65,6 +65,9 @@
 
     const ok = i => !!i && i.complete && i.naturalWidth > 0;
 
+    // bump to force clients past GitHub Pages' asset caching
+    const V = '4';
+
     const canvas = document.getElementById('gui');
     const ctx = canvas.getContext('2d');
     const hud = document.getElementById('hud');
@@ -74,7 +77,7 @@
         if (!path) return null;
         if (S.imgs.has(path)) return S.imgs.get(path);
         const i = new Image();
-        i.src = path;
+        i.src = path + (path.indexOf('?') >= 0 ? '&' : '?') + 'v=' + V;
         S.imgs.set(path, i);
         return i;
     }
@@ -89,12 +92,15 @@
     async function boot() {
         try {
             const [questsTxt, widthsTxt, manifestTxt] = await Promise.all([
-                fetch('quests.json').then(r => r.text()),
-                fetch('textures/font/ascii.properties').then(r => r.text()),
-                fetch('texture_manifest.json').then(r => r.text()).catch(() => '{"missing":[]}'),
+                fetch('quests.json?v=' + V).then(r => r.text()),
+                fetch('textures/font/ascii.properties?v=' + V).then(r => r.text()),
+                fetch('texture_manifest.json?v=' + V).then(r => r.text()).catch(() => '{"missing":[]}'),
             ]);
             S.data = JSON.parse(questsTxt);
-            for (const id of (JSON.parse(manifestTxt).missing || [])) S.missing.add(id);
+            for (const id of (JSON.parse(manifestTxt).missing || [])) {
+                S.missing.add(id);
+                S.missing.add(missKey(id));
+            }
             loadWidths(widthsTxt);
 
             // preload the atlases + every icon we might draw
@@ -126,10 +132,16 @@
     }
 
     function iconMods() { return []; }
-    function iconPath(id) {
-        if (!id || S.missing.has(id)) return null;
+    // unresolved-icon lookup key: namespace is not consistently cased in the pack data
+    function missKey(id) {
         const i = id.indexOf(':');
-        return 'textures/icons/' + id.slice(0, i) + '/' + id.slice(i + 1).toLowerCase() + '.png';
+        return i < 0 ? id.toLowerCase() : id.slice(0, i).toLowerCase() + ':' + id.slice(i + 1).toLowerCase();
+    }
+
+    function iconPath(id) {
+        if (!id || S.missing.has(id) || S.missing.has(missKey(id))) return null;
+        const i = id.indexOf(':');
+        return 'textures/icons/' + id.slice(0, i).toLowerCase() + '/' + id.slice(i + 1).toLowerCase() + '.png';
     }
 
     // ------------------------------------------------------------------ text (MC font, fontScale 2)

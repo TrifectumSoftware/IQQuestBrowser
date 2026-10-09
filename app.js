@@ -60,7 +60,10 @@
         lastX: 0, lastY: 0,
         scroll: 0,              // chapter list scroll
         mouseX: 0, mouseY: 0,
+        missing: new Set(),
     };
+
+    const ok = i => !!i && i.complete && i.naturalWidth > 0;
 
     const canvas = document.getElementById('gui');
     const ctx = canvas.getContext('2d');
@@ -68,6 +71,7 @@
 
     // ------------------------------------------------------------------ loading
     function img(path) {
+        if (!path) return null;
         if (S.imgs.has(path)) return S.imgs.get(path);
         const i = new Image();
         i.src = path;
@@ -84,24 +88,28 @@
 
     async function boot() {
         try {
-            const [questsTxt, widthsTxt] = await Promise.all([
+            const [questsTxt, widthsTxt, manifestTxt] = await Promise.all([
                 fetch('quests.json').then(r => r.text()),
                 fetch('textures/font/ascii.properties').then(r => r.text()),
+                fetch('texture_manifest.json').then(r => r.text()).catch(() => '{"missing":[]}'),
             ]);
             S.data = JSON.parse(questsTxt);
+            for (const id of (JSON.parse(manifestTxt).missing || [])) S.missing.add(id);
             loadWidths(widthsTxt);
 
             // preload the atlases + every icon we might draw
             const paths = new Set([SIMPLE, QUEST_FRAMES, FONT]);
             for (const l of Object.values(S.data.linesById)) {
-                if (l.icon && l.icon['id:8']) paths.add(iconPath(l.icon['id:8']));
+                const p = l.icon && l.icon['id:8'] && iconPath(l.icon['id:8']);
+                if (p) paths.add(p);
             }
             for (const q of Object.values(S.data.quests)) {
-                if (q.icon && q.icon['id:8']) paths.add(iconPath(q.icon['id:8']));
+                const p = q.icon && q.icon['id:8'] && iconPath(q.icon['id:8']);
+                if (p) paths.add(p);
             }
             await Promise.all([...paths].map(p => new Promise(res => {
                 const i = img(p);
-                if (i.complete) return res();
+                if (!i || i.complete) return res();
                 i.onload = i.onerror = res;
             })));
 
@@ -119,6 +127,7 @@
 
     function iconMods() { return []; }
     function iconPath(id) {
+        if (!id || S.missing.has(id)) return null;
         const i = id.indexOf(':');
         return 'textures/icons/' + id.slice(0, i) + '/' + id.slice(i + 1).toLowerCase() + '.png';
     }
@@ -189,7 +198,7 @@
     function drawGlyphColoured(code, x, y, colour) {
         if (code === 32) return;
         const src = img(FONT);
-        if (!src.complete) return;
+        if (!ok(src)) return;
         const col = code % 16, row = Math.floor(code / 16);
         const cell = src.naturalWidth / 16;
         const c = tintImage(src, colour);
@@ -229,7 +238,7 @@
     // ------------------------------------------------------------------ textures
     function ninePatch(t, x, y, w, h) {
         const s = img(SIMPLE);
-        if (!s.complete) return;
+        if (!ok(s)) return;
         const [l, tp, r, b] = t.pad;
         const sw = t.sw, sh = t.sh;
         const cw = sw - l - r, ch = sh - tp - b;
@@ -251,14 +260,14 @@
 
     function stretchTexture(sx, sy, sw, sh, x, y, w, h) {
         const s = img(QUEST_FRAMES);
-        if (!s.complete) return;
+        if (!ok(s)) return;
         ctx.drawImage(s, sx, sy, sw, sh, x, y, w, h);
     }
 
     // draw a quest frame: SLICED_STRETCH (9-patch) for norm/aux, STRETCH for main
     function questFrame(kind, stateIdx, x, y, w, h, colour) {
         const src = img(QUEST_FRAMES);
-        if (!src.complete) return;
+        if (!ok(src)) return;
         const sx = QUEST_COL[kind] * 24;
         const sy = stateIdx * 24;
         const sprite = tintImage(src, colour);
@@ -391,7 +400,7 @@
         // chapter header: icon at (40,8) + title at (60,12)   [GuiQuestLines.icoChapter / txTitle]
         if (line && line.icon && line.icon['id:8']) {
             const p = img(iconPath(line.icon['id:8']));
-            if (p.complete) ctx.drawImage(p, 40, 8, 16, 16);
+            if (ok(p)) ctx.drawImage(p, 40, 8, 16, 16);
         }
         drawText(line ? line.name : '', 60, 12, '#000000', false);
 
@@ -418,7 +427,7 @@
             // chapter icon
             if (l.icon && l.icon['id:8']) {
                 const p = img(iconPath(l.icon['id:8']));
-                if (p.complete) ctx.drawImage(p, listX, y, 16, 16);
+                if (ok(p)) ctx.drawImage(p, listX, y, 16, 16);
             }
             drawText(l.name, listX + 18, y + 4, selected ? '#000000' : '#1a1a1a', false);
             y += 16;
@@ -472,7 +481,7 @@
             const isz = Math.max(4, Math.min(w - pad, h - pad));
             const id = it.q.icon && it.q.icon['id:8'];
             const p = id ? img(iconPath(id)) : null;
-            if (p && p.complete) {
+            if (ok(p)) {
                 ctx.drawImage(p, x + (w - isz) / 2, y + (h - isz) / 2, isz, isz);
             } else {
                 ctx.fillStyle = 'rgba(255,255,255,0.25)';
